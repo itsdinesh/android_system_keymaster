@@ -65,11 +65,20 @@ PureSoftKeymasterContext::PureSoftKeymasterContext(KmVersion version,
                         HmacKeyFactory(*this /* blob_maker */, *this /* random_source */)),
       os_version_(0), os_patchlevel_(0), soft_keymaster_enforcement_(64, 64),
       security_level_(security_level) {
-    // We're pretending to be some sort of secure hardware which supports secure key storage,
-    // this must only be used for testing.
-    if (security_level != KM_SECURITY_LEVEL_SOFTWARE) {
-        pure_soft_secure_key_storage_ = std::make_unique<PureSoftSecureKeyStorage>(64);
-    }
+    // Intentionally do NOT instantiate PureSoftSecureKeyStorage, even though we
+    // advertise a non-SOFTWARE (TRUSTED_ENVIRONMENT) security level on this
+    // TEE-less x86 device. That storage is RAM-only (upstream marks it "only for
+    // testing"): any key placed in it -- rollback-resistant or single-use
+    // (USAGE_COUNT_LIMIT) keys -- is lost on reboot and then rejected as
+    // INVALID_KEY_BLOB by ParseKeyBlob. keystore2 stores the user's
+    // synthetic-password protector as such a key, so after the first reboot the
+    // SP blob could no longer be decrypted and system_server crash-looped.
+    // Leaving this storage absent makes every key self-contained and persistent
+    // across reboots -- exactly the SOFTWARE path, which is proven-good -- while
+    // the hw_enforced characteristics below still mark keys as hardware-backed so
+    // application requests for TRUSTED_ENVIRONMENT keys keep succeeding.
+    // (Rollback-resistance requests simply return ROLLBACK_RESISTANCE_UNAVAILABLE,
+    // which callers already handle by retrying without it.)
     if (version >= KmVersion::KEYMINT_1) {
         pure_soft_remote_provisioning_context_ =
             std::make_unique<PureSoftRemoteProvisioningContext>(security_level_);
